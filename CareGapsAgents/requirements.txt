@@ -1,0 +1,50 @@
+# =====================================================
+# CARE GAPS AGENT - REQUIREMENTS
+# Python dependencies for Databricks deployment
+# =====================================================
+
+# Core Databricks packages (usually pre-installed)
+mlflow>=2.9.0
+databricks-sdk>=0.18.0
+databricks-openai>=0.1.0
+
+# OpenAI client
+openai>=1.0.0
+
+# Unity Catalog AI
+unitycatalog-ai>=0.1.0
+
+# Data validation
+pydantic>=2.0.0
+
+# =====================================================
+# INSTALLATION INSTRUCTIONS
+# =====================================================
+
+# In Databricks notebook:
+# %pip install -r requirements.txt
+
+# Or install individually:
+# %pip install mlflow databricks-sdk databricks-openai openai unitycatalog-ai pydantic
+
+# =====================================================
+# VERIFICATION
+# =====================================================
+
+# Run this to verify all packages are installed:
+# python -c "import mlflow, openai, pydantic, databricks.sdk; print('All packages installed!')"
+
+# =====================================================
+# NOTES
+# =====================================================
+
+# Standard library modules (no install needed):
+# - json
+# - re
+# - typing
+# - uuid
+# - warnings
+# - datetime
+
+# Databricks Runtime 14.0+ includes most of these by default
+# If using Databricks ML Runtime, all packages are pre-installed
