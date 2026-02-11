@@ -1,0 +1,62 @@
+command: ["npm", "run", "start"]
+runtime: nodejs20
+
+env:
+  - name: DATABRICKS_SERVING_ENDPOINT
+    valueFrom: serving-endpoint
+  
+  # ✅ Hospital Branding
+  - name: HOSPITAL_NAME
+    value: "Akron Children's Hospital"
+  
+  - name: HOSPITAL_LOGO_URL
+    value: "assets/ACH_Logo_main.png"
+  
+  - name: PRIMARY_COLOR
+    value: "#0066CC"
+  
+  - name: SECONDARY_COLOR
+    value: "#00A651"
+  
+  - name: ACCENT_COLOR
+    value: "#FFB81C"
+  
+  - name: HOSPITAL_TAGLINE
+    value: "Pediatric Care Excellence"
+  
+  # ✅ Support Information
+  - name: SUPPORT_EMAIL
+    value: "enterprisedataandanalytics@akronchildrens.org"
+  
+  - name: SUPPORT_PHONE
+    value: "(330) 543-1000"
+  
+  - name: SUPPORT_HOURS
+    value: "Monday-Friday, 8 AM - 5 PM EST"
+  
+  - #name: SUPPORT_PORTAL_URL
+    #value: "https://intranet.akronchildrens.org/it"
+  
+  # ✅ Feature Flags
+  - name: ENABLE_CACHING
+    value: "true"
+  
+  - name: ENABLE_ANALYTICS
+    value: "true"
+  
+  - name: ENABLE_PHI_ACCESS
+    value: "true"
+  
+  # ✅ Performance Tuning
+  - name: MAX_RETRIES
+    value: "3"
+  
+  - name: AGENT_TIMEOUT
+    value: "45000"
+  
+  # ✅ App Metadata
+  - name: APP_NAME
+    value: "Care Gaps Assistant"
+  
+  - name: APP_VERSION
+    value: "2.0.0"
