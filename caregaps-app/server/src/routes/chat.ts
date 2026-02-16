@@ -511,9 +511,10 @@ chatRouter.post('/', requireAuth, async (req: Request, res: Response) => {
       return await myProvider.languageModel(selectedChatModel);
     });
 
+    const modelMessages = await convertToModelMessages(uiMessages);
     const result = streamText({
       model,
-      messages: convertToModelMessages(uiMessages),
+      messages: modelMessages,
       onFinish: ({ usage }) => {
         finalUsage = usage;
       },
