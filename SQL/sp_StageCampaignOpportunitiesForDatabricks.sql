@@ -97,11 +97,11 @@ BEGIN TRY
         dep.DEPARTMENT_ID,
         dep.DEPARTMENT_NAME AS VACCINE_LOCATION
     INTO #AllAppointments
-    FROM F_SCHED_APPT appt
-    INNER JOIN ZC_APPT_STATUS apptStatus
+    FROM CLARITY..F_SCHED_APPT appt
+    INNER JOIN CLARITY..ZC_APPT_STATUS apptStatus
         ON appt.APPT_STATUS_C = apptStatus.APPT_STATUS_C
         AND apptStatus.NAME <> 'Canceled'
-    INNER JOIN CLARITY_DEP dep
+    INNER JOIN CLARITY..CLARITY_DEP dep
         ON appt.DEPARTMENT_ID = dep.DEPARTMENT_ID
         AND dep.INPATIENT_DEPT_YN = 'N'
         AND dep.DEPARTMENT_NAME NOT LIKE 'ZZZ%'
@@ -158,12 +158,12 @@ BEGIN TRY
         subjectPat.ZIP AS SUBJECT_PATIENT_ZIP
     INTO #SubjectPatients
     FROM #UpcomingAppointments ua
-    INNER JOIN ACCOUNT acct
+    INNER JOIN CLARITY..ACCOUNT acct
         ON ua.ACCOUNT_ID = acct.ACCOUNT_ID
-    INNER JOIN ACCT_ADDR acctAddr
+    INNER JOIN CLARITY..ACCT_ADDR acctAddr
         ON acct.ACCOUNT_ID = acctAddr.ACCOUNT_ID
         AND acctAddr.ADDRESS_LINE = 1
-    INNER JOIN PATIENT subjectPat
+    INNER JOIN CLARITY..PATIENT subjectPat
         ON ua.SUBJECT_PATIENT_ID = subjectPat.PAT_ID
     WHERE UPPER(acct.ACCOUNT_NAME) NOT LIKE '%COUNTY%'
       AND UPPER(acct.ACCOUNT_NAME) NOT LIKE 'CSB,%'
@@ -197,7 +197,7 @@ BEGIN TRY
         1 AS CONFIDENCE_RANK
     INTO #AllMatches
     FROM #SubjectPatients sp
-    INNER JOIN PAT_RELATIONSHIPS pr_subject
+    INNER JOIN CLARITY..PAT_RELATIONSHIPS pr_subject
         ON sp.SUBJECT_PATIENT_ID = pr_subject.PAT_ID
         AND pr_subject.LINE = 1
         AND pr_subject.PAT_REL_LGL_GUAR_YN = 'Y'
@@ -207,7 +207,7 @@ BEGIN TRY
         AND UPPER(pr_subject.PAT_REL_NAME) NOT LIKE '%,CSB'
         AND UPPER(pr_subject.PAT_REL_NAME) NOT LIKE '%, CSB'
         AND UPPER(pr_subject.PAT_REL_NAME) NOT LIKE '%CARING, FOR KIDS%'
-    INNER JOIN PAT_RELATIONSHIPS pr_sibling
+    INNER JOIN CLARITY..PAT_RELATIONSHIPS pr_sibling
         ON pr_sibling.LINE = 1
         AND CONCAT_WS('|',
             pr_sibling.PAT_REL_NAME,
@@ -249,12 +249,12 @@ BEGIN TRY
     FROM #SubjectPatients sp
     INNER JOIN (
         SELECT DISTINCT PAT_ID, ACCOUNT_ID
-        FROM F_SCHED_APPT
+        FROM CLARITY..F_SCHED_APPT
         WHERE ACCOUNT_ID IS NOT NULL
     ) siblingAppts
         ON siblingAppts.ACCOUNT_ID = sp.ACCOUNT_ID
         AND siblingAppts.PAT_ID != sp.SUBJECT_PATIENT_ID
-    INNER JOIN PATIENT siblingPat
+    INNER JOIN CLARITY..PATIENT siblingPat
         ON siblingPat.PAT_ID = siblingAppts.PAT_ID
         AND siblingPat.BIRTH_DATE > DATEADD(YEAR, -22, GETDATE())
         AND siblingPat.ADD_LINE_1 = sp.SUBJECT_PATIENT_ADDRESS
@@ -282,12 +282,12 @@ BEGIN TRY
     FROM #SubjectPatients sp
     INNER JOIN (
         SELECT DISTINCT PAT_ID, ACCOUNT_ID
-        FROM F_SCHED_APPT
+        FROM CLARITY..F_SCHED_APPT
         WHERE ACCOUNT_ID IS NOT NULL
     ) siblingAppts
         ON siblingAppts.ACCOUNT_ID = sp.ACCOUNT_ID
         AND siblingAppts.PAT_ID != sp.SUBJECT_PATIENT_ID
-    INNER JOIN PATIENT siblingPat
+    INNER JOIN CLARITY..PATIENT siblingPat
         ON siblingPat.PAT_ID = siblingAppts.PAT_ID
         AND siblingPat.BIRTH_DATE > DATEADD(YEAR, -22, GETDATE())
         AND (siblingPat.ADD_LINE_1 != sp.SUBJECT_PATIENT_ADDRESS
@@ -368,8 +368,8 @@ BEGIN TRY
         CASE
             WHEN EXISTS (
                 SELECT 1
-                FROM PAT_ENC_DX dx
-                INNER JOIN CLARITY_EDG edg ON dx.DX_ID = edg.DX_ID
+                FROM CLARITY..PAT_ENC_DX dx
+                INNER JOIN CLARITY..CLARITY_EDG edg ON dx.DX_ID = edg.DX_ID
                 WHERE dx.PAT_ID = hm.SIBLING_ID
                   AND edg.CURRENT_ICD10_LIST LIKE 'J45%'
             ) THEN 1
@@ -378,12 +378,12 @@ BEGIN TRY
 
     INTO #SiblingFluStatus
     FROM #HouseholdMembers hm
-    INNER JOIN PATIENT siblingPat
+    INNER JOIN CLARITY..PATIENT siblingPat
         ON hm.SIBLING_ID = siblingPat.PAT_ID
-    LEFT JOIN PATIENT_HMT_STATUS hmt_current
+    LEFT JOIN CLARITY..PATIENT_HMT_STATUS hmt_current
         ON hm.SIBLING_ID = hmt_current.PAT_ID
         AND hmt_current.QUALIFIED_HMT_ID IN (20, 24)
-    LEFT JOIN ZC_HMT_DUE_STATUS status_current
+    LEFT JOIN CLARITY..ZC_HMT_DUE_STATUS status_current
         ON hmt_current.HMT_DUE_STATUS_C = status_current.HMT_DUE_STATUS_C
     LEFT JOIN (
         SELECT
@@ -396,7 +396,7 @@ BEGIN TRY
                 PARTITION BY PAT_ID, HM_TOPIC_ID
                 ORDER BY SNAPSHOT_DATE DESC
             ) AS RN
-        FROM HM_HISTORICAL_STATUS
+        FROM CLARITY..HM_HISTORICAL_STATUS
         WHERE HM_TOPIC_ID IN (20, 24)
     ) hmt_hist
         ON hm.SIBLING_ID = hmt_hist.PAT_ID
@@ -465,24 +465,24 @@ BEGIN TRY
 
     INTO #FluOpportunities
     FROM #SiblingFluStatus sfs
-    INNER JOIN PATIENT subjectPat
+    INNER JOIN CLARITY..PATIENT subjectPat
         ON sfs.SUBJECT_PATIENT_ID = subjectPat.PAT_ID
-    INNER JOIN PATIENT siblingPat
+    INNER JOIN CLARITY..PATIENT siblingPat
         ON sfs.SIBLING_ID = siblingPat.PAT_ID
-    LEFT JOIN OTHER_COMMUNCTN mobilePhone
+    LEFT JOIN CLARITY..OTHER_COMMUNCTN mobilePhone
         ON siblingPat.PAT_ID = mobilePhone.PAT_ID
         AND mobilePhone.OTHER_COMMUNIC_C = '1'
-    INNER JOIN IDENTITY_ID subjectPat_idd
+    INNER JOIN CLARITY..IDENTITY_ID subjectPat_idd
         ON subjectPat.PAT_ID = subjectPat_idd.PAT_ID
         AND subjectPat_idd.IDENTITY_TYPE_ID = 40
-    INNER JOIN IDENTITY_ID siblingPat_idd
+    INNER JOIN CLARITY..IDENTITY_ID siblingPat_idd
         ON siblingPat.PAT_ID = siblingPat_idd.PAT_ID
         AND siblingPat_idd.IDENTITY_TYPE_ID = 40
-    LEFT JOIN PATIENT_MYC mychart
+    LEFT JOIN CLARITY..PATIENT_MYC mychart
         ON siblingPat.PAT_ID = mychart.PAT_ID
-    LEFT JOIN ZC_MYCHART_STATUS mychartStatus
+    LEFT JOIN CLARITY..ZC_MYCHART_STATUS mychartStatus
         ON mychart.MYCHART_STATUS_C = mychartStatus.MYCHART_STATUS_C
-    LEFT JOIN ZC_SEX sex
+    LEFT JOIN CLARITY..ZC_SEX sex
         ON siblingPat.SEX_C = sex.RCPT_MEM_SEX_C;
 
     SET @RowCount = (SELECT COUNT(*) FROM #FluOpportunities);
