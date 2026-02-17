@@ -136,8 +136,8 @@ BEGIN TRY
     CREATE INDEX IDX_SUBJECT ON #UpcomingAppointments(SUBJECT_PATIENT_ID);
     CREATE INDEX IDX_ACCT ON #UpcomingAppointments(ACCOUNT_ID);
 
-    SET @RowCount = @@ROWCOUNT;
-    PRINT '  First appointments (unique patients): ' + CAST((SELECT COUNT(*) FROM #UpcomingAppointments) AS VARCHAR);
+    SET @RowCount = (SELECT COUNT(*) FROM #UpcomingAppointments);
+    PRINT '  First appointments (unique patients): ' + CAST(@RowCount AS VARCHAR);
     PRINT '';
 
     -- ============================================================================
