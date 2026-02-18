@@ -1,0 +1,660 @@
+{
+    "name": "PL_CareGaps_Production",
+    "properties": {
+        "description": "Production pipeline with date partitioning, quality checks, and error handling",
+        "activities": [
+            {
+                "name": "Copy_CareGaps",
+                "type": "Copy",
+                "dependsOn": [
+                    {
+                        "activity": "Set_RunDate",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.01:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [
+                    {
+                        "name": "Source",
+                        "value": "dbo.STG_CareGaps_Daily"
+                    },
+                    {
+                        "name": "Destination",
+                        "value": "@{pipeline().parameters.Environment}/landing/chmca_custom/caregaps/@{formatDateTime(utcNow(), 'yyyy-MM-dd')}/dbo.STG_CareGaps_Daily.parquet"
+                    }
+                ],
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": {
+                            "value": "SELECT * FROM dbo.STG_CareGaps_Daily WHERE CAST(LOAD_TIMESTAMP AS DATE) = '@{variables('RunDate')}'",
+                            "type": "Expression"
+                        },
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "sink": {
+                        "type": "ParquetSink",
+                        "storeSettings": {
+                            "type": "AzureBlobFSWriteSettings"
+                        },
+                        "formatSettings": {
+                            "type": "ParquetWriteSettings"
+                        }
+                    },
+                    "enableStaging": false,
+                    "validateDataConsistency": true,
+                    "translator": {
+                        "type": "TabularTranslator",
+                        "typeConversion": true,
+                        "typeConversionSettings": {
+                            "allowDataTruncation": true,
+                            "treatBooleanAsNumber": false
+                        }
+                    }
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_src_sup_clarity_chmca_custom",
+                        "type": "DatasetReference"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_adls_parquet_caregaps",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "full_path": {
+                                "value": "@concat('landing/chmca_custom/caregaps/', variables('RunDate'))",
+                                "type": "Expression"
+                            },
+                            "file_name": "CareGaps_daily.parquet"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Set_CareGaps_RowCount",
+                "type": "SetVariable",
+                "dependsOn": [
+                    {
+                        "activity": "Copy_CareGaps",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "variableName": "RowCountCareGaps",
+                    "value": {
+                        "value": "@string(activity('Copy_CareGaps').output.rowsCopied)",
+                        "type": "Expression"
+                    }
+                }
+            },
+            {
+                "name": "Check_CareGaps_MinRows",
+                "type": "IfCondition",
+                "dependsOn": [
+                    {
+                        "activity": "Set_CareGaps_RowCount",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@greater(int(variables('RowCountCareGaps')), 1000)",
+                        "type": "Expression"
+                    },
+                    "ifFalseActivities": [
+                        {
+                            "name": "Fail_CareGaps_LowCount",
+                            "type": "Fail",
+                            "dependsOn": [],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "message": {
+                                    "value": "@concat('Care Gaps row count too low: ', variables('RowCountCareGaps'), ' rows (expected > 1000)')",
+                                    "type": "Expression"
+                                },
+                                "errorCode": "E001"
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "Copy_Appointments",
+                "type": "Copy",
+                "dependsOn": [
+                    {
+                        "activity": "Check_CareGaps_MinRows",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.01:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [
+                    {
+                        "name": "Source",
+                        "value": "dbo.STG_Appointments_Daily"
+                    },
+                    {
+                        "name": "Destination",
+                        "value": "@{pipeline().parameters.Environment}/landing/chmca_custom/caregaps/@{formatDateTime(utcNow(), 'yyyy-MM-dd')}/dbo.STG_Appointments_Daily.parquet"
+                    }
+                ],
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": {
+                            "value": "SELECT * FROM dbo.STG_Appointments_Daily WHERE CAST(LOAD_TIMESTAMP AS DATE) = '@{variables('RunDate')}'",
+                            "type": "Expression"
+                        },
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "sink": {
+                        "type": "ParquetSink",
+                        "storeSettings": {
+                            "type": "AzureBlobFSWriteSettings"
+                        },
+                        "formatSettings": {
+                            "type": "ParquetWriteSettings"
+                        }
+                    },
+                    "enableStaging": false,
+                    "validateDataConsistency": true
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_src_sup_clarity_chmca_custom_caregaps_appointments",
+                        "type": "DatasetReference"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_adls_parquet_caregaps",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "full_path": {
+                                "value": "@concat('landing/chmca_custom/caregaps/', variables('RunDate'))",
+                                "type": "Expression"
+                            },
+                            "file_name": "Appointments_daily.parquet"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Set_Appointments_RowCount",
+                "type": "SetVariable",
+                "dependsOn": [
+                    {
+                        "activity": "Copy_Appointments",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "variableName": "RowCountAppointments",
+                    "value": {
+                        "value": "@string(activity('Copy_Appointments').output.rowsCopied)",
+                        "type": "Expression"
+                    }
+                }
+            },
+            {
+                "name": "Copy_PatientSummary",
+                "type": "Copy",
+                "dependsOn": [
+                    {
+                        "activity": "Set_Appointments_RowCount",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.01:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [
+                    {
+                        "name": "Source",
+                        "value": "dbo.STG_PatientGapSummary_Daily"
+                    },
+                    {
+                        "name": "Destination",
+                        "value": "@{pipeline().parameters.Environment}/landing/chmca_custom/caregaps/@{formatDateTime(utcNow(), 'yyyy-MM-dd')}/dbo.STG_PatientGapSummary_Daily.parquet"
+                    }
+                ],
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": {
+                            "value": "SELECT * FROM dbo.STG_PatientGapSummary_Daily WHERE CAST(LOAD_TIMESTAMP AS DATE) = '@{variables('RunDate')}'",
+                            "type": "Expression"
+                        },
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "sink": {
+                        "type": "ParquetSink",
+                        "storeSettings": {
+                            "type": "AzureBlobFSWriteSettings"
+                        },
+                        "formatSettings": {
+                            "type": "ParquetWriteSettings"
+                        }
+                    },
+                    "enableStaging": false,
+                    "validateDataConsistency": true
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_src_sup_clarity_chmca_custom_caregaps_patientsummary",
+                        "type": "DatasetReference"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_adls_parquet_caregaps",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "full_path": {
+                                "value": "@concat('landing/chmca_custom/caregaps/', variables('RunDate'))",
+                                "type": "Expression"
+                            },
+                            "file_name": "PatientGapsSummary_daily.parquet"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Set_PatientSummary_RowCount",
+                "type": "SetVariable",
+                "dependsOn": [
+                    {
+                        "activity": "Copy_PatientSummary",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "variableName": "RowCountPatientSummary",
+                    "value": {
+                        "value": "@string(activity('Copy_PatientSummary').output.rowsCopied)",
+                        "type": "Expression"
+                    }
+                }
+            },
+            {
+                "name": "Copy_ProviderMetrics",
+                "type": "Copy",
+                "dependsOn": [
+                    {
+                        "activity": "Set_PatientSummary_RowCount",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.01:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [
+                    {
+                        "name": "Source",
+                        "value": "dbo.STG_ProviderMetrics_Daily"
+                    },
+                    {
+                        "name": "Destination",
+                        "value": "@{pipeline().parameters.Environment}/landing/chmca_custom/caregaps/@{formatDateTime(utcNow(), 'yyyy-MM-dd')}/dbo.STG_ProviderMetrics_Daily.parquet"
+                    }
+                ],
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": {
+                            "value": "SELECT * FROM dbo.STG_ProviderMetrics_Daily WHERE CAST(LOAD_TIMESTAMP AS DATE) = '@{variables('RunDate')}'",
+                            "type": "Expression"
+                        },
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "sink": {
+                        "type": "ParquetSink",
+                        "storeSettings": {
+                            "type": "AzureBlobFSWriteSettings"
+                        },
+                        "formatSettings": {
+                            "type": "ParquetWriteSettings"
+                        }
+                    },
+                    "enableStaging": false,
+                    "validateDataConsistency": true
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_src_sup_clarity_chmca_custom_caregaps_providermetrics",
+                        "type": "DatasetReference"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_adls_parquet_caregaps",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "full_path": {
+                                "value": "@concat('landing/chmca_custom/caregaps/', variables('RunDate'))",
+                                "type": "Expression"
+                            },
+                            "file_name": "ProviderMetrics_daily.parquet"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Set_ProviderMetrics_RowCount",
+                "type": "SetVariable",
+                "dependsOn": [
+                    {
+                        "activity": "Copy_ProviderMetrics",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "variableName": "RowCountProviderMetrics",
+                    "value": {
+                        "value": "@string(activity('Copy_ProviderMetrics').output.rowsCopied)",
+                        "type": "Expression"
+                    }
+                }
+            },
+            {
+                "name": "Copy_CampaignOpportunities",
+                "type": "Copy",
+                "dependsOn": [
+                    {
+                        "activity": "Set_ProviderMetrics_RowCount",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.01:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [
+                    {
+                        "name": "Source",
+                        "value": "dbo.STG_CampaignOpportunities_Daily"
+                    },
+                    {
+                        "name": "Destination",
+                        "value": "@{pipeline().parameters.Environment}/landing/chmca_custom/caregaps/@{formatDateTime(utcNow(), 'yyyy-MM-dd')}/dbo.STG_CampaignOpportunities_Daily.parquet"
+                    }
+                ],
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": {
+                            "value": "SELECT * FROM dbo.STG_CampaignOpportunities_Daily WHERE CAST(LOAD_TIMESTAMP AS DATE) = '@{variables('RunDate')}'",
+                            "type": "Expression"
+                        },
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "sink": {
+                        "type": "ParquetSink",
+                        "storeSettings": {
+                            "type": "AzureBlobFSWriteSettings"
+                        },
+                        "formatSettings": {
+                            "type": "ParquetWriteSettings"
+                        }
+                    },
+                    "enableStaging": false,
+                    "validateDataConsistency": true
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_src_sup_clarity_chmca_custom_caregaps_campaignopportunities",
+                        "type": "DatasetReference"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_adls_parquet_caregaps",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "full_path": {
+                                "value": "@concat('landing/chmca_custom/caregaps/', variables('RunDate'))",
+                                "type": "Expression"
+                            },
+                            "file_name": "CampaignOpportunities_daily.parquet"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Set_CampaignOpportunities_RowCount",
+                "type": "SetVariable",
+                "dependsOn": [
+                    {
+                        "activity": "Copy_CampaignOpportunities",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "variableName": "RowCountCampaignOpportunities",
+                    "value": {
+                        "value": "@string(activity('Copy_CampaignOpportunities').output.rowsCopied)",
+                        "type": "Expression"
+                    }
+                }
+            },
+            {
+                "name": "Calculate_TotalRows",
+                "type": "SetVariable",
+                "dependsOn": [
+                    {
+                        "activity": "Set_CampaignOpportunities_RowCount",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "variableName": "TotalRowsCopied",
+                    "value": {
+                        "value": "@string(add(add(add(int(variables('RowCountCareGaps')), int(variables('RowCountAppointments'))), add(int(variables('RowCountPatientSummary')), int(variables('RowCountProviderMetrics')))), int(variables('RowCountCampaignOpportunities'))))",
+                        "type": "Expression"
+                    }
+                }
+            },
+            {
+                "name": "Run_Databricks_ETL",
+                "type": "DatabricksNotebook",
+                "dependsOn": [
+                    {
+                        "activity": "Calculate_TotalRows",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.02:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30
+                },
+                "userProperties": [
+                    {
+                        "name": "NotebookPath",
+                        "value": "/Users/adminjkhan@akronchildrens.org/ETL/CareGaps/CareGapsETLProduction"
+                    },
+                    {
+                        "name": "RunDate",
+                        "value": "@{variables('RunDate')}"
+                    }
+                ],
+                "typeProperties": {
+                    "notebookPath": "/Users/adminjkhan@akronchildrens.org/ETL/CareGaps/CareGapsETLProduction",
+                    "baseParameters": {
+                        "run_date": {
+                            "value": "@variables('RunDate')",
+                            "type": "Expression"
+                        },
+                        "environment": {
+                            "value": "@pipeline().parameters.Environment",
+                            "type": "Expression"
+                        },
+                        "care_gaps_count": {
+                            "value": "@variables('RowCountCareGaps')",
+                            "type": "Expression"
+                        },
+                        "appointments_count": {
+                            "value": "@variables('RowCountAppointments')",
+                            "type": "Expression"
+                        },
+                        "patient_summary_count": {
+                            "value": "@variables('RowCountPatientSummary')",
+                            "type": "Expression"
+                        },
+                        "provider_metrics_count": {
+                            "value": "@variables('RowCountProviderMetrics')",
+                            "type": "Expression"
+                        },
+                        "campaign_opportunities_count": {
+                            "value": "@variables('RowCountCampaignOpportunities')",
+                            "type": "Expression"
+                        }
+                    }
+                },
+                "linkedServiceName": {
+                    "referenceName": "ls_adb_to_x_use1_ach_dbw_databricks1_single_compute",
+                    "type": "LinkedServiceReference"
+                }
+            },
+            {
+                "name": "Set_RunDate",
+                "type": "SetVariable",
+                "dependsOn": [],
+                "policy": {
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "variableName": "RunDate",
+                    "value": {
+                        "value": "@formatDateTime(convertFromUtc(utcNow(), 'Eastern Standard Time'), 'yyyy-MM-dd')",
+                        "type": "Expression"
+                    }
+                }
+            }
+        ],
+        "parameters": {
+            "Environment": {
+                "type": "string",
+                "defaultValue": "dev"
+            },
+            "full_path": {
+                "type": "String",
+                "defaultValue": "landing/chmca_custom/caregaps/2025-12-30"
+            },
+            "file_name": {
+                "type": "String",
+                "defaultValue": "data.parquet"
+            }
+        },
+        "variables": {
+            "RunDate": {
+                "type": "String"
+            },
+            "ErrorMessage": {
+                "type": "String"
+            },
+            "RowCountCareGaps": {
+                "type": "String"
+            },
+            "RowCountAppointments": {
+                "type": "String"
+            },
+            "RowCountPatientSummary": {
+                "type": "String"
+            },
+            "RowCountProviderMetrics": {
+                "type": "String"
+            },
+            "RowCountCampaignOpportunities": {
+                "type": "String"
+            },
+            "TotalRowsCopied": {
+                "type": "String"
+            }
+        },
+        "folder": {
+            "name": "dev_jawad"
+        },
+        "annotations": []
+    },
+    "type": "Microsoft.DataFactory/factories/pipelines"
+}
