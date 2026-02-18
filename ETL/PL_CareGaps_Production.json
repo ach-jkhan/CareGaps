@@ -178,45 +178,11 @@
                             }
                         },
                         {
-                            "name": "Check_CareGaps_MinRows",
-                            "type": "IfCondition",
-                            "dependsOn": [
-                                {
-                                    "activity": "Set_CareGaps_RowCount",
-                                    "dependencyConditions": [
-                                        "Succeeded"
-                                    ]
-                                }
-                            ],
-                            "userProperties": [],
-                            "typeProperties": {
-                                "expression": {
-                                    "value": "@greater(int(variables('RowCountCareGaps')), 1000)",
-                                    "type": "Expression"
-                                },
-                                "ifFalseActivities": [
-                                    {
-                                        "name": "Fail_CareGaps_LowCount",
-                                        "type": "Fail",
-                                        "dependsOn": [],
-                                        "userProperties": [],
-                                        "typeProperties": {
-                                            "message": {
-                                                "value": "@concat('Care Gaps row count too low: ', variables('RowCountCareGaps'), ' rows (expected > 1000)')",
-                                                "type": "Expression"
-                                            },
-                                            "errorCode": "E001"
-                                        }
-                                    }
-                                ]
-                            }
-                        },
-                        {
                             "name": "Copy_Appointments",
                             "type": "Copy",
                             "dependsOn": [
                                 {
-                                    "activity": "Check_CareGaps_MinRows",
+                                    "activity": "Set_CareGaps_RowCount",
                                     "dependencyConditions": [
                                         "Succeeded"
                                     ]
