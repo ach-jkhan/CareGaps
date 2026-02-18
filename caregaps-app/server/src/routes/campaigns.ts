@@ -9,6 +9,11 @@ import { executeSql } from '../lib/databricks-sql';
 
 const CAMPAIGN_TABLE = 'dev_kiddo.silver.campaign_opportunities';
 
+// Maps URL route types to DB campaign_type values
+const DB_CAMPAIGN_TYPE: Record<string, string> = {
+  'flu-vaccine': 'FLU_VACCINE',
+};
+
 const campaignNames: Record<string, string> = {
   'flu-vaccine': 'Flu Vaccine Piggybacking',
   'depression-screening': 'Depression Screening (PHQ-9)',
@@ -49,7 +54,7 @@ campaignsRouter.get('/', requireAuth, async (_req: Request, res: Response) => {
       };
     }
 
-    const fluStats = statsMap['flu-vaccine'] ?? {
+    const fluStats = statsMap['FLU_VACCINE'] ?? {
       total: 0,
       pending: 0,
       sent: 0,
@@ -116,7 +121,7 @@ campaignsRouter.get(
       const limit = Math.min(Number(req.query.limit) || 100, 500);
 
       // Build WHERE clauses — campaign_type is always included
-      const conditions: string[] = [`campaign_type = 'flu-vaccine'`];
+      const conditions: string[] = [`campaign_type = 'FLU_VACCINE'`];
       if (statusFilter && statusFilter !== 'all') {
         conditions.push(`status = '${statusFilter.replace(/'/g, "''")}'`);
       }
@@ -142,7 +147,7 @@ campaignsRouter.get(
           SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as converted
         FROM ${CAMPAIGN_TABLE}
-        WHERE campaign_type = 'flu-vaccine'
+        WHERE campaign_type = 'FLU_VACCINE'
       `);
 
       const statsRow = statsRows[0] ?? {};
