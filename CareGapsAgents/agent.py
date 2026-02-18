@@ -349,12 +349,16 @@ UC_TOOL_NAMES = [
 ]
 
 TOOL_INFOS = []
+uc_function_client = None
 
-uc_toolkit = UCFunctionToolkit(function_names=UC_TOOL_NAMES)
-uc_function_client = get_uc_function_client()
+try:
+    uc_toolkit = UCFunctionToolkit(function_names=UC_TOOL_NAMES)
+    uc_function_client = get_uc_function_client()
 
-for tool_spec in uc_toolkit.tools:
-    TOOL_INFOS.append(create_tool_info(tool_spec))
+    for tool_spec in uc_toolkit.tools:
+        TOOL_INFOS.append(create_tool_info(tool_spec))
+except Exception as e:
+    print(f"[INIT] UC toolkit unavailable (expected during model logging): {e}")
 
 
 ###############################################################################
@@ -367,10 +371,15 @@ class ToolCallingAgent(ResponsesAgent):
     def __init__(self, llm_endpoint: str, tools: list[ToolInfo]):
         """Initializes the ToolCallingAgent with tools."""
         self.llm_endpoint = llm_endpoint
-        self.workspace_client = WorkspaceClient()
-        self.model_serving_client: OpenAI = (
-            self.workspace_client.serving_endpoints.get_open_ai_client()
-        )
+        try:
+            self.workspace_client = WorkspaceClient()
+            self.model_serving_client: OpenAI = (
+                self.workspace_client.serving_endpoints.get_open_ai_client()
+            )
+        except Exception as e:
+            print(f"[INIT] WorkspaceClient unavailable (expected during model logging): {e}")
+            self.workspace_client = None
+            self.model_serving_client = None
         self._tools_dict = {tool.name: tool for tool in tools}
         self._functions_called = []  # Track function calls for logging
 
