@@ -38,51 +38,6 @@
                         "value": "@equals(pipeline().parameters.ETLOnly, true)",
                         "type": "Expression"
                     },
-                    "ifTrueActivities": [
-                        {
-                            "name": "Run_Databricks_ETL_Direct",
-                            "description": "Run ETL notebook directly on existing parquet files (no copy)",
-                            "type": "DatabricksNotebook",
-                            "dependsOn": [],
-                            "policy": {
-                                "timeout": "0.02:00:00",
-                                "retry": 0,
-                                "retryIntervalInSeconds": 30
-                            },
-                            "userProperties": [
-                                {
-                                    "name": "NotebookPath",
-                                    "value": "/Users/adminjkhan@akronchildrens.org/ETL/CareGaps/CareGapsETLProduction"
-                                },
-                                {
-                                    "name": "RunDate",
-                                    "value": "@{variables('RunDate')}"
-                                }
-                            ],
-                            "typeProperties": {
-                                "notebookPath": "/Users/adminjkhan@akronchildrens.org/ETL/CareGaps/CareGapsETLProduction",
-                                "baseParameters": {
-                                    "run_date": {
-                                        "value": "@variables('RunDate')",
-                                        "type": "Expression"
-                                    },
-                                    "environment": {
-                                        "value": "@pipeline().parameters.Environment",
-                                        "type": "Expression"
-                                    },
-                                    "care_gaps_count": "0",
-                                    "appointments_count": "0",
-                                    "patient_summary_count": "0",
-                                    "provider_metrics_count": "0",
-                                    "campaign_opportunities_count": "0"
-                                }
-                            },
-                            "linkedServiceName": {
-                                "referenceName": "ls_adb_to_x_use1_ach_dbw_databricks1_single_compute",
-                                "type": "LinkedServiceReference"
-                            }
-                        }
-                    ],
                     "ifFalseActivities": [
                         {
                             "name": "Copy_CareGaps",
@@ -499,11 +454,19 @@
                                     }
                                 },
                                 "enableStaging": false,
-                                "validateDataConsistency": true
+                                "validateDataConsistency": true,
+                                "translator": {
+                                    "type": "TabularTranslator",
+                                    "typeConversion": true,
+                                    "typeConversionSettings": {
+                                        "allowDataTruncation": true,
+                                        "treatBooleanAsNumber": false
+                                    }
+                                }
                             },
                             "inputs": [
                                 {
-                                    "referenceName": "ds_src_sup_clarity_chmca_custom_caregaps_campaignopportunities",
+                                    "referenceName": "ds_src_sup_clarity_chmca_custom",
                                     "type": "DatasetReference"
                                 }
                             ],
@@ -626,6 +589,51 @@
                                         "value": "@variables('RowCountCampaignOpportunities')",
                                         "type": "Expression"
                                     }
+                                }
+                            },
+                            "linkedServiceName": {
+                                "referenceName": "ls_adb_to_x_use1_ach_dbw_databricks1_single_compute",
+                                "type": "LinkedServiceReference"
+                            }
+                        }
+                    ],
+                    "ifTrueActivities": [
+                        {
+                            "name": "Run_Databricks_ETL_Direct",
+                            "description": "Run ETL notebook directly on existing parquet files (no copy)",
+                            "type": "DatabricksNotebook",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.02:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30
+                            },
+                            "userProperties": [
+                                {
+                                    "name": "NotebookPath",
+                                    "value": "/Users/adminjkhan@akronchildrens.org/ETL/CareGaps/CareGapsETLProduction"
+                                },
+                                {
+                                    "name": "RunDate",
+                                    "value": "@{variables('RunDate')}"
+                                }
+                            ],
+                            "typeProperties": {
+                                "notebookPath": "/Users/adminjkhan@akronchildrens.org/CareGaps/SQL/CareGapsETLSimple",
+                                "baseParameters": {
+                                    "run_date": {
+                                        "value": "@variables('RunDate')",
+                                        "type": "Expression"
+                                    },
+                                    "environment": {
+                                        "value": "@pipeline().parameters.Environment",
+                                        "type": "Expression"
+                                    },
+                                    "care_gaps_count": "0",
+                                    "appointments_count": "0",
+                                    "patient_summary_count": "0",
+                                    "provider_metrics_count": "0",
+                                    "campaign_opportunities_count": "0"
                                 }
                             },
                             "linkedServiceName": {
