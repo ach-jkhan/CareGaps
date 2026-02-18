@@ -1,64 +1,32 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import useSWR from 'swr';
 import { toast } from 'sonner';
 import { SidebarToggle } from '@/components/sidebar-toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Skeleton } from '@/components/ui/skeleton';
 import { CampaignStats } from '@/components/campaigns/campaign-stats';
 import { CampaignFilters } from '@/components/campaigns/campaign-filters';
 import { OpportunitiesTable } from '@/components/campaigns/opportunities-table';
+import { fetcher } from '@/lib/utils';
 import type {
   CampaignStats as CampaignStatsType,
   FluOpportunity,
   OpportunityStatus,
 } from '@/lib/campaign-types';
 
-const mockStats: CampaignStatsType = {
-  total: 1247,
-  pending: 892,
-  sent: 234,
-  converted: 121,
-};
-
-const mockOpportunities: FluOpportunity[] = [
-  {
-    id: '1',
-    subjectMrn: 'MRN-100234',
-    subjectName: 'Tommy Johnson',
-    siblingMrn: 'MRN-100235',
-    siblingName: 'Sarah Johnson',
-    appointmentDate: '2026-02-18',
-    appointmentLocation: 'Akron - Considine',
-    hasAsthma: true,
-    lastFluVaccineDate: '2025-01-15',
-    myChartActive: true,
-    mobilePhone: '330-555-0142',
-    status: 'pending',
-    llmMessage:
-      "Great job getting Sarah's flu shot last Jan! Since flu vaccines protect for one year, she's due again. Sarah's asthma makes this extra important. Bring her to Tommy's appt at Considine on 2/18!",
-  },
-  {
-    id: '2',
-    subjectMrn: 'MRN-200456',
-    subjectName: 'Emma Rodriguez',
-    siblingMrn: 'MRN-200457',
-    siblingName: 'Jake Rodriguez',
-    appointmentDate: '2026-02-20',
-    appointmentLocation: 'Beachwood',
-    hasAsthma: false,
-    lastFluVaccineDate: '2024-11-20',
-    myChartActive: true,
-    mobilePhone: '216-555-0198',
-    status: 'approved',
-    llmMessage:
-      "Jake did great getting his flu vaccine last Nov! Each vaccine protects for one year, so he's due. Someone in your household has an appt at Beachwood on 2/20 - bring Jake for his flu shot!",
-  },
-];
-
 const campaignNames: Record<string, string> = {
   'flu-vaccine': 'Flu Vaccine Piggybacking',
   'depression-screening': 'Depression Screening (PHQ-9)',
   'lab-piggybacking': 'Lab Piggybacking',
 };
+
+interface CampaignDetailResponse {
+  type: string;
+  name: string;
+  stats: CampaignStatsType;
+  opportunities: FluOpportunity[];
+}
 
 export default function CampaignDetailPage() {
   const { type } = useParams<{ type: string }>();
@@ -70,26 +38,28 @@ export default function CampaignDetailPage() {
 
   const campaignName = campaignNames[type ?? ''] ?? 'Campaign';
 
-  const filteredOpportunities = mockOpportunities.filter((opp) => {
-    if (
-      searchQuery &&
-      !opp.siblingMrn.toLowerCase().includes(searchQuery.toLowerCase()) &&
-      !opp.siblingName.toLowerCase().includes(searchQuery.toLowerCase()) &&
-      !opp.subjectName.toLowerCase().includes(searchQuery.toLowerCase())
-    ) {
-      return false;
-    }
-    if (activeStatus !== 'all' && opp.status !== activeStatus) {
-      return false;
-    }
-    if (asthmaOnly && !opp.hasAsthma) {
-      return false;
-    }
-    return true;
+  // Build query string for server-side filtering
+  const params = new URLSearchParams();
+  if (activeStatus !== 'all') params.set('status', activeStatus);
+  if (searchQuery) params.set('search', searchQuery);
+  if (asthmaOnly) params.set('asthmaOnly', 'true');
+  const qs = params.toString();
+  const url = `/api/campaigns/${type}${qs ? `?${qs}` : ''}`;
+
+  const { data, isLoading } = useSWR<CampaignDetailResponse>(url, fetcher, {
+    keepPreviousData: true,
   });
 
+  const stats: CampaignStatsType = data?.stats ?? {
+    total: 0,
+    pending: 0,
+    sent: 0,
+    converted: 0,
+  };
+  const opportunities: FluOpportunity[] = data?.opportunities ?? [];
+
   const handleView = (id: string) => {
-    const opp = mockOpportunities.find((o) => o.id === id);
+    const opp = opportunities.find((o) => o.id === id);
     if (opp?.llmMessage) {
       toast.info(opp.llmMessage, { duration: 5000 });
     }
@@ -116,21 +86,36 @@ export default function CampaignDetailPage() {
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
           </TabsList>
           <TabsContent value="opportunities" className="space-y-6">
-            <CampaignStats stats={mockStats} />
-            <CampaignFilters
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              activeStatus={activeStatus}
-              onStatusChange={setActiveStatus}
-              asthmaOnly={asthmaOnly}
-              onAsthmaChange={setAsthmaOnly}
-            />
-            <OpportunitiesTable
-              opportunities={filteredOpportunities}
-              onView={handleView}
-              onApprove={handleApprove}
-              onSend={handleSend}
-            />
+            {isLoading && !data ? (
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-4">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
+                    <Skeleton key={i} className="h-20 rounded-lg" />
+                  ))}
+                </div>
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-64 w-full" />
+              </div>
+            ) : (
+              <>
+                <CampaignStats stats={stats} />
+                <CampaignFilters
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
+                  activeStatus={activeStatus}
+                  onStatusChange={setActiveStatus}
+                  asthmaOnly={asthmaOnly}
+                  onAsthmaChange={setAsthmaOnly}
+                />
+                <OpportunitiesTable
+                  opportunities={opportunities}
+                  onView={handleView}
+                  onApprove={handleApprove}
+                  onSend={handleSend}
+                />
+              </>
+            )}
           </TabsContent>
           <TabsContent value="metrics">
             <div className="flex h-64 items-center justify-center rounded-md border text-muted-foreground">
