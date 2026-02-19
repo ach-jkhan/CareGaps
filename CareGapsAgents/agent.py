@@ -597,17 +597,13 @@ class ToolCallingAgent(ResponsesAgent):
 ## Model Logging
 ###############################################################################
 
-# Log the model using MLflow
-# Guard against MLflow's model loading attempting to access None attributes
+# autolog is optional — isolate it so a failure doesn't discard tools
 try:
-    # Only enable autolog if we have a valid workspace client
-    # During model logging, this will be skipped
-    if TOOL_INFOS:  # Only if tools were successfully loaded
-        mlflow.openai.autolog(disable=True)  # Disable to prevent _multi_processor error
-    AGENT = ToolCallingAgent(llm_endpoint=LLM_ENDPOINT_NAME, tools=TOOL_INFOS)
-    mlflow.models.set_model(AGENT)
+    mlflow.openai.autolog(disable=True)
 except Exception as e:
-    print(f"[INIT] Agent instantiation during model logging: {e}")
-    # Create a minimal agent for model logging
-    AGENT = ToolCallingAgent(llm_endpoint=LLM_ENDPOINT_NAME, tools=[])
-    mlflow.models.set_model(AGENT)
+    print(f"[INIT] autolog skipped (safe to ignore): {e}")
+
+# Create the agent with whatever tools were loaded (may be empty during model logging)
+print(f"[INIT] Creating agent with {len(TOOL_INFOS)} tools")
+AGENT = ToolCallingAgent(llm_endpoint=LLM_ENDPOINT_NAME, tools=TOOL_INFOS)
+mlflow.models.set_model(AGENT)
