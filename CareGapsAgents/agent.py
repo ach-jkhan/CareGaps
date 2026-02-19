@@ -1,5 +1,6 @@
 
 import json
+import os
 import re
 from typing import Any, Callable, Generator, Optional
 from uuid import uuid4
@@ -30,8 +31,14 @@ from unitycatalog.ai.core.base import get_uc_function_client
 #LLM_ENDPOINT_NAME = "databricks-gpt-oss-20b"
 LLM_ENDPOINT_NAME = "databricks-meta-llama-3-3-70b-instruct"
 
+# Data Mode: "real" = force function calls for live data, "demo" = allow synthetic example data
+# Set via environment variable or change here. Use "demo" for stakeholder presentations, "real" for production.
+DATA_MODE = os.environ.get("CAREGAPS_DATA_MODE", "real")
+
 # System Prompt - Example-Driven for Llama 3.3 70B
 SYSTEM_PROMPT = """You are the CareGaps Assistant for Akron Children's Hospital. Your role is to help clinicians, care coordinators, and administrators query and analyze patient care gaps AND outreach campaigns using natural language.
+
+{data_mode_instruction}
 
 CAPABILITIES:
 You have access to 19 SQL functions:
@@ -190,7 +197,44 @@ CRITICAL:
 - NEVER return raw comma-separated data
 - ALWAYS include "### Next Best Actions:" section after data
 - SHOW ALL ROWS - never truncate to 3 or 10 results
-- For campaign operations (approve, send, update status) → redirect to Campaign Dashboard"""
+- For campaign operations (approve, send, update status) → redirect to Campaign Dashboard
+{data_mode_critical}"""
+
+# Mode-specific prompt segments
+_DATA_MODE_INSTRUCTIONS = {
+    "real": (
+        "DATA MODE: REAL (PRODUCTION)\n"
+        "You MUST call a function to get real data before answering any data question. "
+        "NEVER invent numbers, patient names, MRNs, or statistics. "
+        "If a function returns no results, say 'No results found' — do NOT make up example data."
+    ),
+    "demo": (
+        "DATA MODE: DEMO (PRESENTATION)\n"
+        "You may generate realistic-looking synthetic data to demonstrate the system's capabilities. "
+        "Use plausible patient names, MRNs, dates, and statistics that showcase the full feature set. "
+        "Still call functions when available, but if functions return empty results or are unavailable, "
+        "generate representative sample data to illustrate what the system does. "
+        "Make the data look realistic for a pediatric hospital setting."
+    ),
+}
+
+_DATA_MODE_CRITICAL = {
+    "real": (
+        "- ALWAYS call a function FIRST to get real data. NEVER generate fake data or placeholder numbers.\n"
+        "- If a function returns empty results, say 'No data found' — do NOT invent sample rows."
+    ),
+    "demo": (
+        "- Call functions when available. If results are empty, generate realistic sample data for demonstration.\n"
+        "- Make synthetic data look authentic — use realistic names, MRNs, dates, and clinical details."
+    ),
+}
+
+SYSTEM_PROMPT = SYSTEM_PROMPT.format(
+    data_mode_instruction=_DATA_MODE_INSTRUCTIONS.get(DATA_MODE, _DATA_MODE_INSTRUCTIONS["real"]),
+    data_mode_critical=_DATA_MODE_CRITICAL.get(DATA_MODE, _DATA_MODE_CRITICAL["real"]),
+)
+
+print(f"[CONFIG] Data mode: {DATA_MODE}")
 
 
 ###############################################################################
@@ -199,7 +243,7 @@ CRITICAL:
 
 class AgentLogger:
     """Log agent interactions for monitoring and debugging"""
-    
+
     @staticmethod
     def log_query(user_query: str, functions_called: list[str], success: bool, error: str = None):
         """Log query to MLflow or database"""
@@ -211,13 +255,13 @@ class AgentLogger:
             "error": error,
             "model": LLM_ENDPOINT_NAME
         }
-        
+
         # Log to MLflow
         mlflow.log_dict(log_entry, f"query_{datetime.now().timestamp()}.json")
-        
+
         # Print for debugging (remove in production)
         print(f"[AGENT LOG] {json.dumps(log_entry)}")
-    
+
     @staticmethod
     def log_error(error_type: str, error_message: str, context: dict = None):
         """Log errors for debugging"""
@@ -227,7 +271,7 @@ class AgentLogger:
             "message": error_message,
             "context": context or {}
         }
-        
+
         mlflow.log_dict(error_entry, f"error_{datetime.now().timestamp()}.json")
         print(f"[ERROR] {json.dumps(error_entry)}")
 
@@ -238,7 +282,7 @@ class AgentLogger:
 
 class InputValidator:
     """Validate user inputs to prevent injection attacks"""
-    
+
     # Dangerous patterns that might indicate SQL injection attempts
     DANGEROUS_PATTERNS = [
         r";\s*drop\s+table",
@@ -248,33 +292,33 @@ class InputValidator:
         r"--\s*$",
         r"/\*.*\*/",
     ]
-    
+
     @staticmethod
     def is_safe_input(user_input: str) -> tuple[bool, str]:
         """Check if user input is safe"""
         if not user_input:
             return False, "Empty input"
-        
+
         # Check length
         if len(user_input) > 1000:
             return False, "Input too long (max 1000 characters)"
-        
+
         # Check for dangerous SQL patterns
         for pattern in InputValidator.DANGEROUS_PATTERNS:
             if re.search(pattern, user_input, re.IGNORECASE):
                 return False, f"Potentially dangerous input detected"
-        
+
         return True, "Valid"
-    
+
     @staticmethod
     def sanitize_input(user_input: str) -> str:
         """Sanitize user input"""
         # Remove any control characters
         sanitized = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', user_input)
-        
+
         # Trim whitespace
         sanitized = sanitized.strip()
-        
+
         return sanitized
 
 
@@ -301,7 +345,7 @@ def create_tool_info(tool_spec, exec_fn_param: Optional[Callable] = None):
         try:
             # Execute function
             function_result = uc_function_client.execute_function(udf_name, kwargs)
-            
+
             if function_result.error is not None:
                 AgentLogger.log_error(
                     "function_execution_error",
@@ -309,9 +353,9 @@ def create_tool_info(tool_spec, exec_fn_param: Optional[Callable] = None):
                     {"function": udf_name, "kwargs": kwargs}
                 )
                 return f"Error executing {udf_name}: {function_result.error}"
-            
+
             return function_result.value
-            
+
         except Exception as e:
             AgentLogger.log_error(
                 "function_exception",
@@ -319,7 +363,7 @@ def create_tool_info(tool_spec, exec_fn_param: Optional[Callable] = None):
                 {"function": udf_name, "kwargs": kwargs}
             )
             return f"Error: {str(e)}"
-    
+
     return ToolInfo(name=tool_name, spec=tool_spec, exec_fn=exec_fn_param or exec_fn)
 
 
@@ -391,10 +435,10 @@ class ToolCallingAgent(ResponsesAgent):
     def execute_tool(self, tool_name: str, args: dict) -> Any:
         """Executes the specified tool with the given arguments."""
         self._functions_called.append(tool_name)
-    
+
         # Execute the tool
         result = self._tools_dict[tool_name].exec_fn(**args)
-    
+
          # ⭐ Format results instead of returning raw
         if isinstance(result, dict):
             formatted = self._format_dict_result(result)
@@ -402,12 +446,12 @@ class ToolCallingAgent(ResponsesAgent):
             formatted = self._format_list_result(result)
         else:
             formatted = str(result)
-        
+
         # ✅ Add instruction for LLM to provide next steps
         # Apply to both lists (patient data) AND dicts (statistics)
         if isinstance(result, (list, dict)) and result:
             formatted += "\n\n[INSTRUCTION: After presenting this data, you MUST add a '### Next Best Actions:' section with 3-5 specific, actionable recommendations based on this data. Be concrete and clinical in your recommendations.]"
-        
+
         return formatted
 
     def call_llm(self, messages: list[dict[str, Any]]) -> Generator[dict[str, Any], None, None]:
@@ -454,7 +498,7 @@ class ToolCallingAgent(ResponsesAgent):
             if isinstance(args, dict):
                 # Remove empty keys (LLM sometimes generates {"": ""})
                 args = {k: v for k, v in args.items() if k and k.strip()}
-        
+
             # ADD THIS: If args is now empty dict, check if function needs params
             if not args:
                 # Check if function has required parameters
@@ -476,8 +520,8 @@ class ToolCallingAgent(ResponsesAgent):
                 result = f"Error: Function not found. Please rephrase your query."
             else:
                 result = str(self.execute_tool(tool_name=clean_name, args=args))
-                
-            
+
+
         except Exception as e:
             AgentLogger.log_error(
                 "tool_call_error",
@@ -496,19 +540,19 @@ class ToolCallingAgent(ResponsesAgent):
     max_iter: int = 10,  # ⭐ Increased back to 10
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         """Call LLM and execute tools with iteration limit"""
-    
+
         # ⭐ ADD THIS: Limit conversation history to prevent context overflow
         if len(messages) > 7:
             system_prompt = messages[0] if messages[0].get('role') == 'system' else None
             recent_messages = messages[-6:]
-            
+
             if system_prompt:
                 messages = [system_prompt] + recent_messages
             else:
                 messages = recent_messages
 
             print(f"[Debug] Trimmed to {len(messages)} messages")
-    
+
         # Continue with existing loop
         for iteration in range(max_iter):
             last_msg = messages[-1]
@@ -533,28 +577,28 @@ class ToolCallingAgent(ResponsesAgent):
 
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         """Generate a response for the given request"""
-    
+
         # Generate response using predict_stream
         outputs = [
             event.item
             for event in self.predict_stream(request)
             if event.type == "response.output_item.done"
         ]
-    
+
         # Handle custom_inputs for both formats
         custom_outputs = None
         if isinstance(request, dict):
             custom_outputs = request.get('custom_inputs', None)
         elif hasattr(request, 'custom_inputs'):
             custom_outputs = request.custom_inputs
-    
+
         return ResponsesAgentResponse(output=outputs, custom_outputs=custom_outputs)
 
     def predict_stream(
         self, request: ResponsesAgentRequest
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         """Stream prediction with PHI warning"""
-    
+
         # ⭐ Handle both dict and ResponsesAgentRequest formats
         if isinstance(request, dict):
             # Dict format
@@ -567,22 +611,22 @@ class ToolCallingAgent(ResponsesAgent):
                 messages = to_chat_completions_input(request.input)
         else:
             messages = []
-    
+
         if SYSTEM_PROMPT:
             messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
-    
+
         # Generate responses
         yield from self.call_and_run_tools(messages=messages)
-    
+
     def _call_agent(self, request: ResponsesAgentRequest) -> Generator:
         """Internal method to call agent with proper message handling"""
         messages = to_chat_completions_input([i.model_dump() for i in request.input])
-    
+
         if SYSTEM_PROMPT:
             messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
-    
+
         yield from self.call_and_run_tools(messages=messages)
-    
+
     def _format_dict_result(self, result: dict) -> str:
         """Format dictionary result as readable text"""
         lines = []
@@ -595,7 +639,7 @@ class ToolCallingAgent(ResponsesAgent):
         """Format list result as table or bullets"""
         if not result:
             return "No results found."
-        
+
         if isinstance(result[0], dict):
             return self._format_table(result)
         else:
@@ -606,26 +650,26 @@ class ToolCallingAgent(ResponsesAgent):
         """Format list of dicts as a markdown table"""
         if not data:
             return "No results found."
-        
+
         headers = list(data[0].keys())
         readable_headers = [h.replace('_', ' ').title() for h in headers]
-        
+
         lines = []
         lines.append("| " + " | ".join(readable_headers) + " |")  # Proper markdown
         lines.append("|" + "|".join(["---" for _ in headers]) + "|")  # Proper separator
-        
+
         for row in data:
             # Truncate long cell values to 80 chars to keep tables readable
             values = [str(row.get(h, ''))[:80] for h in headers]
             lines.append("| " + " | ".join(values) + " |")
-        
+
         # Add total count
         lines.append(f"\n**Total: {len(data)} results**")
         lines.append("\n### Next Best Actions:")
         lines.append("Please provide 3-5 specific action items based on this data.")
-        
+
         return "\n".join(lines)
-    
+
     def _sanitize_function_name(self, raw_name: str) -> str:
         """
         Remove hallucinated tokens from function names.
@@ -633,7 +677,7 @@ class ToolCallingAgent(ResponsesAgent):
         """
         if not raw_name:
             return raw_name
-        
+
         # Known hallucination tokens
         bad_tokens = [
             '<|channel|>',
@@ -643,22 +687,32 @@ class ToolCallingAgent(ResponsesAgent):
             '<|',
             '|>',
         ]
-        
+
         sanitized = raw_name
         for token in bad_tokens:
             sanitized = sanitized.replace(token, '')
-        
+
         # Log if we had to clean
         if sanitized != raw_name:
             print(f"[SANITIZED] {raw_name} → {sanitized}")
-        
+
         return sanitized
-    
+
 ###############################################################################
 ## Model Logging
 ###############################################################################
 
 # Log the model using MLflow
-mlflow.openai.autolog()
-AGENT = ToolCallingAgent(llm_endpoint=LLM_ENDPOINT_NAME, tools=TOOL_INFOS)
-mlflow.models.set_model(AGENT)
+# Guard against MLflow's model loading attempting to access None attributes
+try:
+    # Only enable autolog if we have a valid workspace client
+    # During model logging, this will be skipped
+    if TOOL_INFOS:  # Only if tools were successfully loaded
+        mlflow.openai.autolog(disable=True)  # Disable to prevent _multi_processor error
+    AGENT = ToolCallingAgent(llm_endpoint=LLM_ENDPOINT_NAME, tools=TOOL_INFOS)
+    mlflow.models.set_model(AGENT)
+except Exception as e:
+    print(f"[INIT] Agent instantiation during model logging: {e}")
+    # Create a minimal agent for model logging
+    AGENT = ToolCallingAgent(llm_endpoint=LLM_ENDPOINT_NAME, tools=[])
+    mlflow.models.set_model(AGENT)
