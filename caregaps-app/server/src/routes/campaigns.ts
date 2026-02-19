@@ -211,25 +211,91 @@ campaignsRouter.get(
 );
 
 /**
- * POST /api/campaigns/:type/approve - Approve an opportunity (stub)
+ * POST /api/campaigns/:type/approve - Approve an opportunity
+ * Body: { siblingMrn, subjectMrn }
  */
 campaignsRouter.post(
   '/:type/approve',
   requireAuth,
   async (req: Request, res: Response) => {
-    const { opportunityId } = req.body;
-    res.json({ success: true, opportunityId, status: 'approved' });
+    const type = String(req.params.type);
+    const dbType = DB_CAMPAIGN_TYPE[type];
+    if (!dbType) {
+      res.status(400).json({ error: 'Unknown campaign type' });
+      return;
+    }
+
+    const { siblingMrn, subjectMrn } = req.body;
+    if (!siblingMrn || !subjectMrn) {
+      res
+        .status(400)
+        .json({ error: 'Missing siblingMrn or subjectMrn' });
+      return;
+    }
+
+    try {
+      const sMrn = String(siblingMrn).replace(/'/g, "''");
+      const xMrn = String(subjectMrn).replace(/'/g, "''");
+      await executeSql(`
+        UPDATE ${CAMPAIGN_TABLE}
+        SET status = 'approved'
+        WHERE campaign_type = '${dbType}'
+          AND patient_mrn = '${sMrn}'
+          AND subject_mrn = '${xMrn}'
+          AND status = 'pending'
+      `);
+      res.json({ success: true, status: 'approved' });
+    } catch (error) {
+      console.error('[campaigns] Failed to approve:', error);
+      res.status(500).json({
+        error: 'Failed to approve opportunity',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
   },
 );
 
 /**
- * POST /api/campaigns/:type/send - Send a message (stub)
+ * POST /api/campaigns/:type/send - Mark opportunity as sent
+ * Body: { siblingMrn, subjectMrn }
  */
 campaignsRouter.post(
   '/:type/send',
   requireAuth,
   async (req: Request, res: Response) => {
-    const { opportunityId } = req.body;
-    res.json({ success: true, opportunityId, status: 'sent' });
+    const type = String(req.params.type);
+    const dbType = DB_CAMPAIGN_TYPE[type];
+    if (!dbType) {
+      res.status(400).json({ error: 'Unknown campaign type' });
+      return;
+    }
+
+    const { siblingMrn, subjectMrn } = req.body;
+    if (!siblingMrn || !subjectMrn) {
+      res
+        .status(400)
+        .json({ error: 'Missing siblingMrn or subjectMrn' });
+      return;
+    }
+
+    try {
+      const sMrn = String(siblingMrn).replace(/'/g, "''");
+      const xMrn = String(subjectMrn).replace(/'/g, "''");
+      await executeSql(`
+        UPDATE ${CAMPAIGN_TABLE}
+        SET status = 'sent'
+        WHERE campaign_type = '${dbType}'
+          AND patient_mrn = '${sMrn}'
+          AND subject_mrn = '${xMrn}'
+          AND status = 'approved'
+      `);
+      res.json({ success: true, status: 'sent' });
+    } catch (error) {
+      console.error('[campaigns] Failed to send:', error);
+      res.status(500).json({
+        error: 'Failed to send message',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
   },
 );

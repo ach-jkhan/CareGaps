@@ -46,9 +46,11 @@ export default function CampaignDetailPage() {
   const qs = params.toString();
   const url = `/api/campaigns/${type}${qs ? `?${qs}` : ''}`;
 
-  const { data, isLoading } = useSWR<CampaignDetailResponse>(url, fetcher, {
-    keepPreviousData: true,
-  });
+  const { data, isLoading, mutate } = useSWR<CampaignDetailResponse>(
+    url,
+    fetcher,
+    { keepPreviousData: true },
+  );
 
   const stats: CampaignStatsType = data?.stats ?? {
     total: 0,
@@ -60,17 +62,55 @@ export default function CampaignDetailPage() {
 
   const handleView = (id: string) => {
     const opp = opportunities.find((o) => o.id === id);
-    if (opp?.llmMessage) {
-      toast.info(opp.llmMessage, { duration: 5000 });
+    if (!opp) return;
+    if (opp.llmMessage) {
+      toast.info(opp.llmMessage, { duration: 8000 });
+    } else {
+      toast.info(
+        `${opp.siblingName} (MRN: ${opp.siblingMrn}) — scheduled with ${opp.subjectName} on ${opp.appointmentDate} at ${opp.appointmentLocation}${opp.hasAsthma ? ' | Asthma: Yes' : ''}${opp.lastFluVaccineDate ? ` | Last flu vaccine: ${opp.lastFluVaccineDate}` : ''}`,
+        { duration: 8000 },
+      );
     }
   };
 
-  const handleApprove = (id: string) => {
-    toast.success(`Opportunity ${id} approved`);
+  const handleApprove = async (id: string) => {
+    const opp = opportunities.find((o) => o.id === id);
+    if (!opp) return;
+    try {
+      const res = await fetch(`/api/campaigns/${type}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siblingMrn: opp.siblingMrn,
+          subjectMrn: opp.subjectMrn,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to approve');
+      toast.success(`Approved: ${opp.siblingName}`);
+      mutate();
+    } catch {
+      toast.error('Failed to approve opportunity');
+    }
   };
 
-  const handleSend = (id: string) => {
-    toast.success(`Message sent for opportunity ${id}`);
+  const handleSend = async (id: string) => {
+    const opp = opportunities.find((o) => o.id === id);
+    if (!opp) return;
+    try {
+      const res = await fetch(`/api/campaigns/${type}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siblingMrn: opp.siblingMrn,
+          subjectMrn: opp.subjectMrn,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to send');
+      toast.success(`Message sent for ${opp.siblingName}`);
+      mutate();
+    } catch {
+      toast.error('Failed to send message');
+    }
   };
 
   return (
