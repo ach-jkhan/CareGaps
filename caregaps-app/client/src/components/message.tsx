@@ -303,9 +303,9 @@ const PurePreviewMessage = ({
                 );
               }
 
-              // Render regular tool calls
+              // Render regular tool calls (collapsed — LLM formats the output as text)
               return (
-                <Tool key={toolCallId} defaultOpen={true}>
+                <Tool key={toolCallId} defaultOpen={false}>
                   <ToolHeader
                     type={toolName}
                     state={effectiveState}
