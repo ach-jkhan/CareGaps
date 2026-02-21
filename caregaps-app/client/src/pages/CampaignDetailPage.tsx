@@ -63,14 +63,10 @@ export default function CampaignDetailPage() {
   const handleView = (id: string) => {
     const opp = opportunities.find((o) => o.id === id);
     if (!opp) return;
-    if (opp.llmMessage) {
-      toast.info(opp.llmMessage, { duration: 8000 });
-    } else {
-      toast.info(
-        `${opp.siblingName} (MRN: ${opp.siblingMrn}) — scheduled with ${opp.subjectName} on ${opp.appointmentDate} at ${opp.appointmentLocation}${opp.hasAsthma ? ' | Asthma: Yes' : ''}${opp.lastFluVaccineDate ? ` | Last flu vaccine: ${opp.lastFluVaccineDate}` : ''}`,
-        { duration: 8000 },
-      );
-    }
+    toast.info(opp.llmMessage, {
+      duration: 8000,
+      description: `${opp.siblingName} (MRN: ${opp.siblingMrn}) → ${opp.subjectName}'s appt`,
+    });
   };
 
   const handleApprove = async (id: string) => {

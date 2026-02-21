@@ -20,6 +20,74 @@ const campaignNames: Record<string, string> = {
   'lab-piggybacking': 'Lab Piggybacking',
 };
 
+// ---------------------------------------------------------------------------
+// Message templates — generates piggybacking messages from opportunity data.
+// TODO: Move to dev_kiddo.silver.campaign_templates so operations can manage
+// templates without code changes.
+// ---------------------------------------------------------------------------
+
+function getFirstName(fullName: string): string {
+  if (!fullName) return '';
+  // Handle "LASTNAME, FIRSTNAME" format from Epic
+  if (fullName.includes(',')) {
+    return fullName.split(',')[1]?.trim().split(' ')[0] ?? fullName;
+  }
+  return fullName.split(' ')[0] ?? fullName;
+}
+
+function formatDate(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+}
+
+function generatePiggybackMessage(opp: {
+  siblingName: string;
+  subjectName: string;
+  appointmentDate: string;
+  appointmentLocation: string;
+  hasAsthma: boolean;
+  lastFluVaccineDate: string | null;
+}): string {
+  const sibling = getFirstName(opp.siblingName);
+  const subject = getFirstName(opp.subjectName);
+  const date = formatDate(opp.appointmentDate);
+  const loc = opp.appointmentLocation;
+  const isSibling =
+    opp.siblingName.trim().toLowerCase() !==
+    opp.subjectName.trim().toLowerCase();
+
+  let msg: string;
+
+  if (isSibling) {
+    if (opp.hasAsthma) {
+      msg =
+        `Hi! ${sibling} is due for a flu shot & has asthma, making flu protection extra important. ` +
+        `Bring them to ${subject}'s appt at ${loc} on ${date}.`;
+    } else {
+      msg =
+        `Hi! ${sibling} is due for a flu shot. ` +
+        `Bring them to ${subject}'s appt at ${loc} on ${date} — easy to get it done in one trip!`;
+    }
+  } else {
+    if (opp.hasAsthma) {
+      msg =
+        `Hi ${sibling}! You're due for a flu shot. With asthma, flu protection is extra important. ` +
+        `Get it at your ${date} appt at ${loc}.`;
+    } else {
+      msg =
+        `Hi ${sibling}! You're due for a flu shot. ` +
+        `Get it at your ${date} appt at ${loc} — quick and easy while you're there!`;
+    }
+  }
+
+  return msg.slice(0, 160);
+}
+
 export const campaignsRouter: RouterType = Router();
 
 campaignsRouter.use(authMiddleware);
@@ -179,25 +247,30 @@ campaignsRouter.get(
         LIMIT ${limit}
       `);
 
-      const opportunities = opportunityRows.map((row, idx) => ({
-        id: String(idx + 1),
-        siblingMrn: row.patient_mrn ?? '',
-        siblingName: row.patient_name ?? '',
-        subjectMrn: row.subject_mrn ?? '',
-        subjectName: row.subject_name ?? '',
-        appointmentDate: row.appointment_date
-          ? String(row.appointment_date)
-          : '',
-        appointmentLocation: row.appointment_location ?? '',
-        hasAsthma: row.has_asthma === 'Y',
-        myChartActive: row.mychart_active === 'Y',
-        mobilePhone: row.mobile_number_on_file ?? null,
-        status: row.status ?? 'pending',
-        llmMessage: row.llm_message ?? null,
-        lastFluVaccineDate: row.last_flu_vaccine_date
-          ? String(row.last_flu_vaccine_date)
-          : null,
-      }));
+      const opportunities = opportunityRows.map((row, idx) => {
+        const opp = {
+          id: String(idx + 1),
+          siblingMrn: row.patient_mrn ?? '',
+          siblingName: row.patient_name ?? '',
+          subjectMrn: row.subject_mrn ?? '',
+          subjectName: row.subject_name ?? '',
+          appointmentDate: row.appointment_date
+            ? String(row.appointment_date)
+            : '',
+          appointmentLocation: row.appointment_location ?? '',
+          hasAsthma: row.has_asthma === 'Y',
+          myChartActive: row.mychart_active === 'Y',
+          mobilePhone: row.mobile_number_on_file ?? null,
+          status: row.status ?? 'pending',
+          llmMessage: '',
+          lastFluVaccineDate: row.last_flu_vaccine_date
+            ? String(row.last_flu_vaccine_date)
+            : null,
+        };
+        // Generate piggybacking message from template
+        opp.llmMessage = generatePiggybackMessage(opp);
+        return opp;
+      });
 
       res.json({ type, name, stats, opportunities });
     } catch (error) {
