@@ -60,15 +60,6 @@ export default function CampaignDetailPage() {
   };
   const opportunities: FluOpportunity[] = data?.opportunities ?? [];
 
-  const handleView = (id: string) => {
-    const opp = opportunities.find((o) => o.id === id);
-    if (!opp) return;
-    toast.info(opp.llmMessage, {
-      duration: 8000,
-      description: `${opp.siblingName} (MRN: ${opp.siblingMrn}) → ${opp.subjectName}'s appt`,
-    });
-  };
-
   const handleApprove = async (id: string) => {
     const opp = opportunities.find((o) => o.id === id);
     if (!opp) return;
@@ -146,7 +137,6 @@ export default function CampaignDetailPage() {
                 />
                 <OpportunitiesTable
                   opportunities={opportunities}
-                  onView={handleView}
                   onApprove={handleApprove}
                   onSend={handleSend}
                 />

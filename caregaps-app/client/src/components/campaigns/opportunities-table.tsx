@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Table,
   TableBody,
@@ -10,17 +11,17 @@ import { OpportunityRow } from './opportunity-row';
 
 interface OpportunitiesTableProps {
   opportunities: FluOpportunity[];
-  onView: (id: string) => void;
   onApprove: (id: string) => void;
   onSend: (id: string) => void;
 }
 
 export function OpportunitiesTable({
   opportunities,
-  onView,
   onApprove,
   onSend,
 }: OpportunitiesTableProps) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   if (opportunities.length === 0) {
     return (
       <div className="flex h-32 items-center justify-center rounded-md border text-muted-foreground">
@@ -48,7 +49,10 @@ export function OpportunitiesTable({
           <OpportunityRow
             key={opp.id}
             opportunity={opp}
-            onView={onView}
+            isExpanded={expandedId === opp.id}
+            onToggleExpand={() =>
+              setExpandedId(expandedId === opp.id ? null : opp.id)
+            }
             onApprove={onApprove}
             onSend={onSend}
           />
