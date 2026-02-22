@@ -16,14 +16,18 @@ interface SuggestedActionsProps {
 function PureSuggestedActions({ chatId, sendMessage }: SuggestedActionsProps) {
   const { chatHistoryEnabled } = useAppConfig();
   const suggestedActions = [
-    'How can you help me?',
-    'Tell me something I might not know',
+    'Show me critical care gaps that need immediate attention',
+    'How is the flu vaccine piggybacking campaign going?',
+    'Which departments have the most open care gaps?',
+    'Show patients with gaps but no upcoming appointments',
+    'What are the top gap types by volume?',
+    'Show flu vaccine opportunities with asthma patients',
   ];
 
   return (
     <div
       data-testid="suggested-actions"
-      className="grid w-full gap-2 sm:grid-cols-2"
+      className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-3"
     >
       {suggestedActions.map((suggestedAction, index) => (
         <motion.div

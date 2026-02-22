@@ -10,6 +10,20 @@ import {
   MessageSquareTextIcon,
 } from 'lucide-react';
 
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return dateStr;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
+  } catch {
+    return dateStr;
+  }
+}
+
 interface OpportunityRowProps {
   opportunity: FluOpportunity;
   isExpanded: boolean;
@@ -43,7 +57,7 @@ export function OpportunityRow({
         </TableCell>
         <TableCell>{opportunity.siblingName}</TableCell>
         <TableCell>{opportunity.subjectName}</TableCell>
-        <TableCell>{opportunity.appointmentDate}</TableCell>
+        <TableCell>{formatDate(opportunity.appointmentDate)}</TableCell>
         <TableCell>{opportunity.appointmentLocation}</TableCell>
         <TableCell>
           {opportunity.hasAsthma && (
@@ -106,7 +120,7 @@ export function OpportunityRow({
                 <span>{opportunity.llmMessage}</span>
                 {opportunity.lastFluVaccineDate && (
                   <span className="ml-2 text-xs text-muted-foreground">
-                    (Last vaccine: {opportunity.lastFluVaccineDate})
+                    (Last vaccine: {formatDate(opportunity.lastFluVaccineDate)})
                   </span>
                 )}
               </div>

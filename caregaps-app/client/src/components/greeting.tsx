@@ -13,17 +13,18 @@ export const Greeting = () => {
         transition={{ delay: 0.5 }}
         className="font-semibold text-xl md:text-2xl"
       >
-        Welcome to CareGaps
+        CareGaps Workbench
       </motion.div>
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 10 }}
         transition={{ delay: 0.6 }}
-        className="text-xl text-zinc-500 md:text-2xl"
+        className="text-zinc-500 md:text-lg"
       >
-        I can help you run care gap campaigns and close outreach opportunities
-        — let's improve healthcare for our patients together.
+        Search care gaps by department, provider, type, and criticality. Track
+        flu vaccine piggybacking campaigns. Find patients who need outreach.
+        Ask me anything about your patient population.
       </motion.div>
     </div>
   );
