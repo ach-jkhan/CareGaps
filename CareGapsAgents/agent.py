@@ -381,6 +381,8 @@ class ToolCallingAgent(ResponsesAgent):
             if isinstance(args, dict):
                 # Remove empty keys (LLM sometimes generates {"": ""})
                 args = {k: v for k, v in args.items() if k and k.strip()}
+                # Coerce null → "" for string params (LLM sends null, UC expects STRING)
+                args = {k: ("" if v is None else v) for k, v in args.items()}
 
             # ADD THIS: If args is now empty dict, check if function needs params
             if not args:
