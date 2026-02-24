@@ -234,7 +234,10 @@ function PureMultimodalInput({
         )}
       </AnimatePresence>
 
-      {messages.length === 0 &&
+      {(messages.length === 0 ||
+        (status === 'ready' &&
+          messages.length > 0 &&
+          messages.at(-1)?.role === 'assistant')) &&
         attachments.length === 0 &&
         uploadQueue.length === 0 && (
           <SuggestedActions

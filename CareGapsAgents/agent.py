@@ -1,4 +1,6 @@
 
+import csv
+import io
 import json
 import os
 import re
@@ -327,18 +329,17 @@ class ToolCallingAgent(ResponsesAgent):
         # Execute the tool
         result = self._tools_dict[tool_name].exec_fn(**args)
 
-         # ⭐ Format results instead of returning raw
+        # Format results — UC functions often return CSV/JSON strings
         if isinstance(result, dict):
             formatted = self._format_dict_result(result)
         elif isinstance(result, list):
             formatted = self._format_list_result(result)
         else:
-            formatted = str(result)
+            formatted = self._format_string_result(str(result))
 
-        # ✅ Add instruction for LLM to provide next steps
-        # Apply to both lists (patient data) AND dicts (statistics)
-        if isinstance(result, (list, dict)) and result:
-            formatted += "\n\n[INSTRUCTION: After presenting this data, you MUST add a '### Next Best Actions:' section with 3-5 specific, actionable recommendations based on this data. Be concrete and clinical in your recommendations.]"
+        # Add instruction for LLM to provide next steps when data was returned
+        if formatted and ('|---' in formatted or '| ' in formatted):
+            formatted += "\n\n[INSTRUCTION: Present this markdown table AS-IS to the user. Do NOT summarize, reformat, or omit any rows. After the table, add a '### Next Best Actions:' section with 3-5 specific, actionable recommendations based on this data.]"
 
         return formatted
 
@@ -516,6 +517,70 @@ class ToolCallingAgent(ResponsesAgent):
             messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
         yield from self.call_and_run_tools(messages=messages)
+
+    def _format_string_result(self, result_str: str) -> str:
+        """Try to parse and format a string result as a markdown table.
+
+        UC functions return data as strings — either JSON arrays or CSV.
+        Converting to markdown here means the LLM can present it directly
+        instead of summarizing or reformatting (which loses rows).
+        """
+        text = result_str.strip()
+
+        # Try JSON array first (e.g., '[{"col1":"val1", ...}, ...]')
+        if text.startswith('['):
+            try:
+                data = json.loads(text)
+                if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                    return self._format_table(data)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Try CSV (has newlines + commas/tabs in the first line)
+        lines = text.split('\n')
+        if len(lines) >= 2:
+            first_line = lines[0]
+            if ',' in first_line or '\t' in first_line:
+                table = self._format_csv_to_table(text)
+                if table is not None:
+                    return table
+
+        # Not tabular — return as-is
+        return text
+
+    def _format_csv_to_table(self, csv_text: str, max_rows: int = 75) -> str | None:
+        """Convert CSV string to markdown table. Returns None if not valid CSV."""
+        try:
+            reader = csv.reader(io.StringIO(csv_text.strip()))
+            rows = list(reader)
+
+            if len(rows) < 2 or len(rows[0]) < 2:
+                return None
+
+            headers = [h.strip() for h in rows[0]]
+            readable_headers = [h.replace('_', ' ').title() for h in headers]
+
+            table_lines = []
+            table_lines.append("| " + " | ".join(readable_headers) + " |")
+            table_lines.append("|" + "|".join(["---" for _ in headers]) + "|")
+
+            data_rows = [r for r in rows[1:] if any(v.strip() for v in r)]
+            total_rows = len(data_rows)
+            truncated = total_rows > max_rows
+
+            for row in data_rows[:max_rows]:
+                values = [str(v).strip()[:80] for v in row]
+                while len(values) < len(headers):
+                    values.append('')
+                table_lines.append("| " + " | ".join(values[:len(headers)]) + " |")
+
+            table_lines.append(f"\n**Total: {total_rows} results**")
+            if truncated:
+                table_lines.append(f"*(Showing first {max_rows} of {total_rows} rows)*")
+
+            return "\n".join(table_lines)
+        except Exception:
+            return None
 
     def _format_dict_result(self, result: dict) -> str:
         """Format dictionary result as readable text"""
