@@ -80,17 +80,15 @@ RESPONSE FORMAT (MANDATORY)
 ═══════════════════════════════════════════
 
 1. ALWAYS call a function first — never fabricate data
-2. ALWAYS use markdown tables with | column | headers | and |---| separator — NEVER use numbered lists or bullet lists for data
-3. Show ALL rows returned — never truncate
-4. ALWAYS end EVERY response with EXACTLY this structure:
+2. When function output contains a markdown table (lines with | and |---|), you MUST copy that ENTIRE table into your response — every row, every column, exactly as given. Start your response with the table.
+3. NEVER summarize, paraphrase, or skip tabular data. The table IS the response.
+4. After the table, ALWAYS add:
 
 ### Next Best Actions:
 • (3-5 specific, actionable recommendations)
 
 **Follow-up questions you might ask:**
 • (2-3 suggested questions)
-
-Rule 4 is MANDATORY even for large responses. Budget your output to always include it.
 
 ═══════════════════════════════════════════
 RETRY RULE
@@ -122,7 +120,7 @@ SCOPE
 You ONLY answer questions about pediatric care gaps, campaigns, and Akron Children's Hospital clinical operations.
 For unrelated questions: "I'm the CareGaps Assistant and can only help with care gap analysis and outreach campaigns for Akron Children's Hospital."
 
-NEVER echo raw function output. ALWAYS format as markdown tables."""
+When function output contains a markdown table, COPY it exactly into your response. Do NOT summarize tables."""
 
 print(f"[CONFIG] Prompt length: {len(SYSTEM_PROMPT)} chars")
 
@@ -329,17 +327,33 @@ class ToolCallingAgent(ResponsesAgent):
         # Execute the tool
         result = self._tools_dict[tool_name].exec_fn(**args)
 
+        # Debug: log raw result info so we can diagnose formatting issues
+        result_str = str(result) if result is not None else ""
+        print(f"[TOOL] {tool_name}: type={type(result).__name__}, len={len(result_str)}, preview={result_str[:200]}")
+
         # Format results — UC functions often return CSV/JSON strings
         if isinstance(result, dict):
             formatted = self._format_dict_result(result)
         elif isinstance(result, list):
             formatted = self._format_list_result(result)
         else:
-            formatted = self._format_string_result(str(result))
+            formatted = self._format_string_result(result_str)
 
-        # Add instruction for LLM to provide next steps when data was returned
-        if formatted and ('|---' in formatted or '| ' in formatted):
-            formatted += "\n\n[INSTRUCTION: Present this markdown table AS-IS to the user. Do NOT summarize, reformat, or omit any rows. After the table, add a '### Next Best Actions:' section with 3-5 specific, actionable recommendations based on this data.]"
+        has_table = '|---' in formatted
+        print(f"[TOOL] {tool_name}: formatted={'table' if has_table else 'text'}, len={len(formatted)}")
+
+        # Wrap with instruction — instruction BEFORE the table so LLM reads it first
+        if has_table:
+            formatted = (
+                "[COPY THE TABLE BELOW INTO YOUR RESPONSE — every row, every column. "
+                "Start your response with this table, then add ### Next Best Actions.]\n\n"
+                + formatted
+            )
+        elif len(formatted) > 200:
+            formatted += (
+                "\n\n[Format the data above as a markdown table with | column | headers | "
+                "and |---| separator. Show all rows. Then add ### Next Best Actions.]"
+            )
 
         return formatted
 
@@ -521,34 +535,55 @@ class ToolCallingAgent(ResponsesAgent):
     def _format_string_result(self, result_str: str) -> str:
         """Try to parse and format a string result as a markdown table.
 
-        UC functions return data as strings — either JSON arrays or CSV.
-        Converting to markdown here means the LLM can present it directly
+        UC functions return data as strings — either JSON arrays, JSON objects,
+        or CSV. Converting to markdown here means the LLM can present it directly
         instead of summarizing or reformatting (which loses rows).
         """
         text = result_str.strip()
+        if not text:
+            return "No results found."
 
-        # Try JSON array first (e.g., '[{"col1":"val1", ...}, ...]')
+        # 1. Try JSON array (e.g., '[{"col1":"val1", ...}, ...]')
         if text.startswith('['):
             try:
                 data = json.loads(text)
                 if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                    print(f"[FORMAT] Parsed as JSON array ({len(data)} rows)")
                     return self._format_table(data)
             except (json.JSONDecodeError, ValueError):
                 pass
 
-        # Try CSV (has newlines + commas/tabs in the first line)
+        # 2. Try JSON object (e.g., '{"columns":[...], "data":[...]}' or flat key-values)
+        if text.startswith('{'):
+            try:
+                obj = json.loads(text)
+                if isinstance(obj, dict):
+                    # Look for nested arrays of dicts
+                    for key, val in obj.items():
+                        if isinstance(val, list) and val and isinstance(val[0], dict):
+                            print(f"[FORMAT] Parsed as JSON object with array key '{key}' ({len(val)} rows)")
+                            return self._format_table(val)
+                    # Flat key-value pairs → two-column table
+                    if obj and all(not isinstance(v, (dict, list)) for v in obj.values()):
+                        print(f"[FORMAT] Parsed as JSON object with {len(obj)} flat keys")
+                        rows = [{"Metric": k.replace('_', ' ').title(), "Value": str(v)} for k, v in obj.items()]
+                        return self._format_table(rows)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # 3. Try CSV — always attempt if there are multiple lines
         lines = text.split('\n')
         if len(lines) >= 2:
-            first_line = lines[0]
-            if ',' in first_line or '\t' in first_line:
-                table = self._format_csv_to_table(text)
-                if table is not None:
-                    return table
+            table = self._format_csv_to_table(text)
+            if table is not None:
+                print(f"[FORMAT] Parsed as CSV ({len(lines)-1} data lines)")
+                return table
 
         # Not tabular — return as-is
+        print(f"[FORMAT] Could not parse as table, returning raw text ({len(text)} chars)")
         return text
 
-    def _format_csv_to_table(self, csv_text: str, max_rows: int = 75) -> str | None:
+    def _format_csv_to_table(self, csv_text: str, max_rows: int = 10) -> str | None:
         """Convert CSV string to markdown table. Returns None if not valid CSV."""
         try:
             reader = csv.reader(io.StringIO(csv_text.strip()))
@@ -601,8 +636,8 @@ class ToolCallingAgent(ResponsesAgent):
             return "\n".join(f"• {item}" for item in result)
 
 
-    def _format_table(self, data: list) -> str:
-        """Format list of dicts as a markdown table"""
+    def _format_table(self, data: list, max_rows: int = 10) -> str:
+        """Format list of dicts as a markdown table (capped at max_rows)"""
         if not data:
             return "No results found."
 
@@ -610,18 +645,19 @@ class ToolCallingAgent(ResponsesAgent):
         readable_headers = [h.replace('_', ' ').title() for h in headers]
 
         lines = []
-        lines.append("| " + " | ".join(readable_headers) + " |")  # Proper markdown
-        lines.append("|" + "|".join(["---" for _ in headers]) + "|")  # Proper separator
+        lines.append("| " + " | ".join(readable_headers) + " |")
+        lines.append("|" + "|".join(["---" for _ in headers]) + "|")
 
-        for row in data:
-            # Truncate long cell values to 80 chars to keep tables readable
+        total_rows = len(data)
+        display_rows = data[:max_rows]
+
+        for row in display_rows:
             values = [str(row.get(h, ''))[:80] for h in headers]
             lines.append("| " + " | ".join(values) + " |")
 
-        # Add total count
-        lines.append(f"\n**Total: {len(data)} results**")
-        lines.append("\n### Next Best Actions:")
-        lines.append("Please provide 3-5 specific action items based on this data.")
+        lines.append(f"\n**Total: {total_rows} results**")
+        if total_rows > max_rows:
+            lines.append(f"*(Showing first {max_rows} of {total_rows} rows)*")
 
         return "\n".join(lines)
 
