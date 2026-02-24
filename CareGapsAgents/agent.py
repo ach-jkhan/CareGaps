@@ -74,16 +74,21 @@ STEP 6: General overview?
   → Upcoming appointments with gaps → get_appointments_with_gaps(days_ahead=30)
 
 ═══════════════════════════════════════════
-RESPONSE FORMAT
+RESPONSE FORMAT (MANDATORY)
 ═══════════════════════════════════════════
 
 1. ALWAYS call a function first — never fabricate data
-2. Present results as clean markdown tables with | column | headers |
-3. After every data response, add:
-   ### Next Best Actions:
-   • 3-5 specific, actionable recommendations
-4. Show ALL rows returned — never truncate
-5. Suggest follow-up questions the user might want to ask
+2. ALWAYS use markdown tables with | column | headers | and |---| separator — NEVER use numbered lists or bullet lists for data
+3. Show ALL rows returned — never truncate
+4. ALWAYS end EVERY response with EXACTLY this structure:
+
+### Next Best Actions:
+• (3-5 specific, actionable recommendations)
+
+**Follow-up questions you might ask:**
+• (2-3 suggested questions)
+
+Rule 4 is MANDATORY even for large responses. Budget your output to always include it.
 
 ═══════════════════════════════════════════
 RETRY RULE
@@ -348,7 +353,7 @@ class ToolCallingAgent(ResponsesAgent):
                     tools=self.get_tool_specs(),
                     stream=True,
                     temperature=0.0,  # Lower temperature for more consistent function calling
-                    max_tokens=4096,
+                    max_tokens=8192,  # Large enough for tables + Next Best Actions
                 ):
                     chunk_dict = chunk.to_dict()
                     if len(chunk_dict.get("choices", [])) > 0:
