@@ -33,6 +33,9 @@ from unitycatalog.ai.core.base import get_uc_function_client
 #LLM_ENDPOINT_NAME = "databricks-gpt-oss-20b"
 LLM_ENDPOINT_NAME = "databricks-meta-llama-3-3-70b-instruct"
 
+# SQL Warehouse ID — set via env var on serving endpoint, or override here for notebook testing
+SQL_WAREHOUSE_ID = os.environ.get('DATABRICKS_SQL_WAREHOUSE_ID', '')
+
 
 # System Prompt - Decision-tree routing for reliable function selection
 SYSTEM_PROMPT = """You are the CareGaps Workbench Assistant for Akron Children's Hospital.
@@ -75,6 +78,17 @@ STEP 6: General overview?
   → Overall statistics → get_gap_statistics()
   → Upcoming appointments with gaps → get_appointments_with_gaps(days_ahead=30)
 
+STEP 7: NONE of the above functions can answer the query?
+  (Complex filters, cross-type analysis, time ranges, intersections, custom aggregations)
+  → Use execute_care_gaps_sql(sql_query='SELECT ...')
+  → ONLY use SELECT statements against the tables listed in the tool description
+  → ALWAYS include LIMIT 100 (or less)
+  → NEVER fabricate data — if you cannot write a correct query, say so
+  → Examples of when to use this:
+    - "patients with BOTH well child AND vaccine gaps" (intersection query)
+    - "care gaps opened in the last 90 days in hematology" (time + department filter)
+    - "average days open by department for immunization gaps" (custom aggregation)
+
 ═══════════════════════════════════════════
 RESPONSE FORMAT (MANDATORY)
 ═══════════════════════════════════════════
@@ -98,6 +112,10 @@ If a function returns data that does NOT match what the user asked for:
 → Do NOT give up. Call a DIFFERENT function that better fits the query.
 → Example: User asks about "flu vaccines by department" and get_provider_gaps returns care gap data
   → Retry with get_campaign_opportunities or search_campaign_opportunities instead.
+
+If a UC function returned EMPTY results or WRONG data for a complex query:
+→ Try execute_care_gaps_sql as a FALLBACK before giving up.
+→ Write the SQL yourself using the table schemas in the tool description.
 
 ═══════════════════════════════════════════
 CAMPAIGN CONTEXT
@@ -211,6 +229,64 @@ class InputValidator:
 
 
 ###############################################################################
+## SQL Guardrails
+###############################################################################
+
+class SqlGuardrails:
+    """Validate LLM-generated SQL before execution to prevent unsafe operations."""
+
+    ALLOWED_TABLES = [
+        'dev_kiddo.silver.care_gaps_cleaned',
+        'dev_kiddo.silver.campaign_opportunities',
+    ]
+
+    BLOCKED_KEYWORDS = [
+        'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER',
+        'TRUNCATE', 'MERGE', 'GRANT', 'REVOKE',
+    ]
+
+    @staticmethod
+    def validate(sql: str) -> tuple[bool, str]:
+        """Validate SQL query. Returns (is_valid, error_message_or_clean_sql)."""
+        if not sql or not sql.strip():
+            return False, "Empty SQL query"
+
+        cleaned = sql.strip()
+
+        # No semicolons — prevent multi-statement injection
+        if ';' in cleaned:
+            return False, "Multiple statements not allowed (semicolons are prohibited)"
+
+        # Must start with SELECT
+        if not re.match(r'^\s*SELECT\b', cleaned, re.IGNORECASE):
+            return False, "Only SELECT statements are allowed"
+
+        # Block DML/DDL keywords anywhere in the query
+        upper_sql = cleaned.upper()
+        for keyword in SqlGuardrails.BLOCKED_KEYWORDS:
+            # Match keyword as a whole word (not part of a column name)
+            if re.search(r'\b' + keyword + r'\b', upper_sql):
+                return False, f"Blocked keyword: {keyword}"
+
+        # Table whitelist — extract table references from FROM and JOIN clauses
+        # Match patterns like: FROM table_name, JOIN table_name
+        table_refs = re.findall(
+            r'\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_.]*)',
+            cleaned,
+            re.IGNORECASE,
+        )
+        for table_ref in table_refs:
+            if table_ref.upper() not in [t.upper() for t in SqlGuardrails.ALLOWED_TABLES]:
+                return False, f"Table not allowed: {table_ref}. Allowed: {', '.join(SqlGuardrails.ALLOWED_TABLES)}"
+
+        # Inject LIMIT 100 if no LIMIT clause present
+        if not re.search(r'\bLIMIT\b', cleaned, re.IGNORECASE):
+            cleaned = cleaned.rstrip() + '\nLIMIT 100'
+
+        return True, cleaned
+
+
+###############################################################################
 ## Tool Definition
 ###############################################################################
 
@@ -291,6 +367,155 @@ try:
         TOOL_INFOS.append(create_tool_info(tool_spec))
 except Exception as e:
     print(f"[INIT] UC toolkit unavailable (expected during model logging): {e}")
+
+
+###############################################################################
+## SQL Fallback Tool
+###############################################################################
+
+SQL_TOOL_DESCRIPTION = """Execute a custom SQL query against care gaps data. Use this ONLY when the dedicated UC functions cannot answer the query (complex filters, intersections, time ranges, custom aggregations).
+
+RULES:
+- Only SELECT statements allowed
+- Always include LIMIT (max 100 rows)
+- Never use INSERT, UPDATE, DELETE, DROP, or other DDL/DML
+
+AVAILABLE TABLES AND SCHEMAS:
+
+Table 1: dev_kiddo.silver.care_gaps_cleaned
+Columns:
+  PAT_ID (STRING) - internal patient ID
+  PAT_MRN_ID (STRING) - medical record number
+  PAT_NAME (STRING) - patient name
+  AGE_YEARS (INT) - patient age
+  SEX (STRING) - patient sex
+  PCP_NAME (STRING) - primary care provider name
+  PCP_DEPARTMENT (STRING) - provider department
+  GAP_TYPE (STRING) - type of care gap (e.g. 'Well Child Visit', 'Overdue Vaccine', 'Immunization')
+  GAP_CATEGORY (STRING) - gap category
+  GAP_DETAIL (STRING) - gap detail description
+  PRIORITY_NAME (STRING) - 'Critical', 'Important', or 'Routine'
+  PRIORITY_LEVEL (INT) - 1=Critical, 2=Important, 3=Routine
+  DAYS_OPEN (INT) - days since gap was identified
+  GAP_DATE (DATE) - date gap was identified
+  NEXT_APPT_DATE (DATE) - next scheduled appointment
+  DAYS_UNTIL_APPT (INT) - days until next appointment
+  HOME_PHONE (STRING) - patient home phone
+  EMAIL_ADDRESS (STRING) - patient email
+  OUTREACH_PRIORITY (STRING) - outreach priority level
+  NEXT_APPT_PROVIDER (STRING) - next appointment provider name
+  NEXT_APPT_LOCATION (STRING) - next appointment location
+
+Table 2: dev_kiddo.silver.campaign_opportunities
+Columns:
+  campaign_type (STRING) - e.g. 'FLU_VACCINE'
+  status (STRING) - 'pending', 'approved', 'sent', 'completed'
+  patient_mrn (STRING) - patient MRN
+  patient_name (STRING) - patient name
+  age_years (INT) - patient age
+  sex (STRING) - patient sex
+  relationship_type (STRING) - relationship to subject patient
+  subject_mrn (STRING) - subject patient MRN
+  subject_name (STRING) - subject patient name
+  appointment_date (DATE) - upcoming appointment date
+  appointment_location (STRING) - appointment location
+  mychart_active (STRING) - Y/N MyChart status
+  mobile_number_on_file (STRING) - mobile phone number
+  confidence_level (STRING) - match confidence
+  has_asthma (STRING) - Y/N asthma flag
+  last_flu_vaccine_date (DATE) - last flu vaccine date
+  llm_message (STRING) - LLM-generated outreach message
+  created_date (DATE) - record creation date"""
+
+SQL_TOOL_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "execute_care_gaps_sql",
+        "description": SQL_TOOL_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "sql_query": {
+                    "type": "string",
+                    "description": "A SELECT query against the allowed tables. Must include LIMIT clause (max 100)."
+                }
+            },
+            "required": ["sql_query"]
+        }
+    }
+}
+
+
+def execute_sql_query(**kwargs) -> str:
+    """Execute a validated SQL query against Databricks SQL warehouse."""
+    sql_query = kwargs.get('sql_query', '')
+
+    # Validate via guardrails
+    is_valid, result = SqlGuardrails.validate(sql_query)
+    if not is_valid:
+        print(f"[SQL GUARDRAIL] Rejected: {result}")
+        return f"SQL validation error: {result}"
+
+    clean_sql = result
+    print(f"[SQL] Executing: {clean_sql[:200]}...")
+
+    try:
+        # Use the module-level config (set via env var or overridden in notebook)
+        wc = WorkspaceClient()
+        warehouse_id = SQL_WAREHOUSE_ID
+        if not warehouse_id:
+            return "Error: DATABRICKS_SQL_WAREHOUSE_ID not configured. Set the environment variable or update SQL_WAREHOUSE_ID in agent.py."
+
+        response = wc.statement_execution.execute_statement(
+            warehouse_id=warehouse_id,
+            statement=clean_sql,
+            wait_timeout='30s',
+            disposition='INLINE',
+            format='JSON_ARRAY',
+        )
+
+        if response.status and response.status.state:
+            state = response.status.state.value
+            if state != 'SUCCEEDED':
+                error_msg = ''
+                if response.status.error:
+                    error_msg = response.status.error.message
+                print(f"[SQL] Query failed: state={state}, error={error_msg}")
+                return f"SQL execution error: {error_msg or state}"
+
+        # Parse response into CSV string for the existing formatting pipeline
+        if not response.manifest or not response.manifest.schema or not response.manifest.schema.columns:
+            return "No results returned."
+
+        columns = [col.name for col in response.manifest.schema.columns]
+        rows = response.result.data_array if response.result and response.result.data_array else []
+
+        if not rows:
+            return "Query returned 0 rows."
+
+        # Build CSV string — feeds into _format_string_result → _format_csv_to_table
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(columns)
+        for row in rows:
+            writer.writerow(row)
+
+        csv_str = output.getvalue()
+        print(f"[SQL] Success: {len(columns)} columns, {len(rows)} rows")
+        return csv_str
+
+    except Exception as e:
+        print(f"[SQL] Exception: {e}")
+        return f"SQL execution error: {str(e)}"
+
+
+# Register the SQL fallback tool
+TOOL_INFOS.append(ToolInfo(
+    name="execute_care_gaps_sql",
+    spec=SQL_TOOL_SPEC,
+    exec_fn=execute_sql_query,
+))
+print(f"[INIT] Added SQL fallback tool. Total tools: {len(TOOL_INFOS)}")
 
 
 ###############################################################################
